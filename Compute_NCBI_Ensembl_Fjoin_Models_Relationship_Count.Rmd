@@ -1,0 +1,817 @@
+---
+title: "Compute_NCBI_Ensembl_Model_Relationships"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+### Loading in data sets and packages
+
+library(dplyr)
+library(stringr)
+
+
+```
+
+
+```{r include=FALSE,echo=FALSE}
+
+### Loading in NCBI Ensembl 50s data (the ideal dataset choosen for final merge into XGC),Processed NCBI and XGC gff models 
+
+Processed_NCBI_Data <- read.delim('NCBI.gff3',sep = '\t',header = FALSE)
+
+Processed_Ensembl_Data <- read.delim('Processed_Ensembl_Data_Final.gff3',sep = '\t',header = FALSE)
+
+Processed_XGC_Data <- read.delim('Processed_XGC.gff3',sep = '\t',header = FALSE) 
+
+names(Processed_Ensembl_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes')
+
+names(Processed_NCBI_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes') 
+
+names(Processed_XGC_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes') 
+  
+
+```
+
+
+```{r echo=FALSE,include=FALSE}
+
+########################################################################################
+
+#####################analyzing merged NCBI Ensembl Gene Models #########################
+
+## Determining one-to-one,one-to-many,many-to-one and unique NCBI/XGC Models of the merged NCBI and XGC Models through fjoin #
+
+########################################################################################
+
+#### CREATING MODIFIED NCBI ENSEMBL DATAFRAME to identify unique relationships #######
+
+NCBI_Ens_Stats <- function(NCBI_Ensembl_Fjoin_Data,Processed_NCBI_Data,Processed_Ensembl_Data){
+  
+names(NCBI_Ensembl_Fjoin_Data) <- c('Overlap_Val','chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes')
+
+Processed_NCBI_Ensembl_Fjoin_Data <- NCBI_Ensembl_Fjoin_Data[,c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes','Overlap_Val')]    
+
+Processed_NCBI_Fjoin_df <- Processed_NCBI_Ensembl_Fjoin_Data %>% filter(source == 'NCBI') %>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes)
+
+Processed_Ensembl_Fjoin_df <- Processed_NCBI_Ensembl_Fjoin_Data %>% filter(source == 'ensembl')%>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes)
+
+Mod_Processed_NCBI_Ensembl_Fjoin_Data <- cbind.data.frame(Processed_NCBI_Fjoin_df,Processed_Ensembl_Fjoin_df)
+
+names(Mod_Processed_NCBI_Ensembl_Fjoin_Data) <- c('chrloc_1','source_1','type_1','start_1','end_1','strand_1','modified_attributes_1','attributes_1','chrloc_2','source_2','type_2','start_2','end_2','strand_2','modified_attributes_2','attributes_2')
+
+Mod_Data <- Mod_Processed_NCBI_Ensembl_Fjoin_Data %>% distinct(.keep_all = TRUE)
+
+####### Extracting gene models of the modified NCBI Ensembl fjoin dataset ##########
+
+Filtered_NCBI_Ens_Gene_Models <- Mod_Data %>% filter((type_1 == 'gene' | type_1 == 'pseudogene') & (type_2 == 'gene' | type_2 == 'pseudogene')) %>% select('chrloc_1','start_1','end_1','strand_1','type_1','modified_attributes_1','attributes_1','chrloc_2','type_2','start_2','end_2','strand_2','modified_attributes_2','attributes_2')
+
+Processed_NCBI_Gene_Models <- Processed_NCBI_Data %>% filter(type == 'gene' | type == "pseudogene")
+
+Processed_Ensembl_Gene_Models <- Processed_Ensembl_Data %>% filter(type == 'gene' | type == "pseudogene")
+
+    
+        ######### Determinng Unique NCBI and Ensembl Models #############
+
+Unique_NCBI_Models <- Processed_NCBI_Data %>% filter(!(chrloc %in% Mod_Data$chrloc_1 & start %in% Mod_Data$start_1 & end %in% Mod_Data$end_1 & strand %in% Mod_Data$strand_1 & attributes %in% Mod_Data$attributes_1))%>% select(chrloc,source,type,start,end,score,strand,phase,modified_attributes,attributes) %>% distinct(.keep_all = TRUE) 
+
+Unique_NCBI_Gene_Models <- Processed_NCBI_Gene_Models %>% filter(!(chrloc %in% Filtered_NCBI_Ens_Gene_Models$chrloc_1 & start %in% Filtered_NCBI_Ens_Gene_Models$start_1 & end %in% Filtered_NCBI_Ens_Gene_Models$end_1 & strand %in% Filtered_NCBI_Ens_Gene_Models$strand_1 & attributes %in% Filtered_NCBI_Ens_Gene_Models$attributes_1)) %>% distinct(.keep_all = TRUE) 
+
+Unique_Ensembl_Models <- Processed_Ensembl_Data %>% filter(!(chrloc %in% Mod_Data$chrloc_2 & start %in% Mod_Data$start_2 & end %in% Mod_Data$end_2 & strand %in% Mod_Data$strand_2 & attributes %in% Mod_Data$attributes_2)) %>% select(chrloc,source,type,start,end,score,strand,phase,modified_attributes,attributes) %>% distinct(.keep_all = TRUE) 
+
+Unique_Ensembl_Gene_Models <- Processed_Ensembl_Gene_Models %>% filter(!(chrloc %in% Filtered_NCBI_Ens_Gene_Models$chrloc_2 & start %in% Filtered_NCBI_Ens_Gene_Models$start_2 & end %in% Filtered_NCBI_Ens_Gene_Models$end_2 & strand %in% Filtered_NCBI_Ens_Gene_Models$strand_2 & attributes %in% Filtered_NCBI_Ens_Gene_Models$attributes_2)) %>% distinct(.keep_all = TRUE) #3750 gene models are present that are unique among the gene models in the merged #9638 models
+
+
+   ######## grouping the models to prepare data to determine the count ###########
+
+
+Filtered_1_to_Many_Relationship_Gene_Models <- Filtered_NCBI_Ens_Gene_Models %>% mutate(
+  
+  Combined_attr = paste0(start_2,"_",end_2)
+  #One_to_Many_Relationship_Count = length(unique(One_to_Many_Relationship))
+  
+  
+  ) 
+
+Filtered_1_to_Many_Relationship_Gene_Model <- Filtered_1_to_Many_Relationship_Gene_Models %>% group_by(chrloc_1,start_1,end_1,strand_1) %>% mutate(
+  
+  One_to_Many_Relationship = paste0(unique(Combined_attr),collapse = ";"),
+  One_to_Many_Relationship_Count = length(unique(Combined_attr))
+  
+  
+  ) %>% select(chrloc_1,start_1,end_1,strand_1,chrloc_2,start_2,end_2,strand_2,One_to_Many_Relationship,One_to_Many_Relationship_Count) %>% distinct(.keep_all = TRUE)
+
+Filtered_Many_To_1_Relationship_Gene_Models <- Filtered_1_to_Many_Relationship_Gene_Model %>% mutate(
+  
+  
+  Combined_Attr_Many_1 = paste0(start_1,"_",end_1)
+  
+)
+
+Filtered_Many_To_1_Relationship_Gene_Model <- Filtered_Many_To_1_Relationship_Gene_Models %>% group_by(chrloc_2,start_2,end_2,strand_2) %>% mutate(
+  
+  Many_to_One_Relationship = paste0(unique(Combined_Attr_Many_1),collapse = ";"),
+  Many_to_One_Relationship_Count = length(unique(Combined_Attr_Many_1))
+  
+  
+  ) %>% select(chrloc_1,start_1,end_1,strand_1,chrloc_2,start_2,end_2,strand_2,One_to_Many_Relationship,One_to_Many_Relationship_Count,Many_to_One_Relationship,Many_to_One_Relationship_Count) %>% distinct(.keep_all = TRUE)
+
+
+Filtered_1_to_Many  <- Filtered_Many_To_1_Relationship_Gene_Model[Filtered_Many_To_1_Relationship_Gene_Model$One_to_Many_Relationship_Count > 1 & Filtered_Many_To_1_Relationship_Gene_Model$Many_to_One_Relationship_Count == 1,] %>% ungroup() %>% select(chrloc_1,start_1,end_1,strand_1,One_to_Many_Relationship,One_to_Many_Relationship_Count,Many_to_One_Relationship,Many_to_One_Relationship_Count) %>% distinct(.keep_all = TRUE) 
+    
+Filtered_Many_to_1 <- Filtered_Many_To_1_Relationship_Gene_Model[Filtered_Many_To_1_Relationship_Gene_Model$One_to_Many_Relationship_Count == 1 & Filtered_Many_To_1_Relationship_Gene_Model$Many_to_One_Relationship_Count > 1,] %>% ungroup() %>% select(chrloc_2,start_2,end_2,strand_2,One_to_Many_Relationship,One_to_Many_Relationship_Count,Many_to_One_Relationship,Many_to_One_Relationship_Count) %>% distinct(.keep_all = TRUE)
+
+Filtered_many_to_many <- Filtered_Many_To_1_Relationship_Gene_Model[Filtered_Many_To_1_Relationship_Gene_Model$One_to_Many_Relationship_Count > 1 & Filtered_Many_To_1_Relationship_Gene_Model$Many_to_One_Relationship_Count > 1,] %>% ungroup() %>% select(One_to_Many_Relationship,One_to_Many_Relationship_Count,Many_to_One_Relationship,Many_to_One_Relationship_Count) %>% distinct(.keep_all = TRUE)
+
+Filtered_1_to_1 <- Filtered_Many_To_1_Relationship_Gene_Model[Filtered_Many_To_1_Relationship_Gene_Model$One_to_Many_Relationship_Count == 1 & Filtered_Many_To_1_Relationship_Gene_Model$Many_to_One_Relationship_Count == 1,] %>% ungroup() %>% select(One_to_Many_Relationship,One_to_Many_Relationship_Count,Many_to_One_Relationship,Many_to_One_Relationship_Count) %>% distinct(.keep_all = TRUE)
+
+######################################################################################
+
+             #computing the count of models of NCBI
+             #computing the count of models of Ensembl
+             #computing the count of models of NCBI and Ensembl
+
+######################################################################################
+
+NCBI_Ensembl_Stat <- data.frame(Type = c('Total_NCBI_Gene_Models','Total_Ensembl_Gene_Models','Overlapped_NCBI_Ensembl_Gene_Models','Unique_NCBI_Gene_Models','Unique_Ensembl_Gene_Models','Overlapped_NCBI_Gene_Models','Overlapped_Ensembl_Gene_Models'),
+Count = c(nrow(Processed_NCBI_Gene_Models),nrow(Processed_Ensembl_Gene_Models),nrow(Filtered_NCBI_Ens_Gene_Models),nrow(Unique_NCBI_Gene_Models),nrow(Unique_Ensembl_Gene_Models),nrow(unique(Filtered_NCBI_Ens_Gene_Models[,c('chrloc_1','start_1','end_1','strand_1','type_1','modified_attributes_1')])),nrow(unique(Filtered_NCBI_Ens_Gene_Models[,c('chrloc_2','type_2','start_2','end_2','strand_2','modified_attributes_2')]))))
+
+#########################################################################################
+
+#########################################################################################
+
+######################################################################################
+
+###### Computing different relationships among NCBI Ensembl Gene Models #########
+                  ## One-to-Many
+                  ## Many-to-Many
+                  ## Many-to-One
+                  ## One-to-One
+
+#######################################################################################
+
+###### computing relationship count and storing data in df #######
+
+NCBI_Ensembl_Relationship_Gene_Models <- data.frame(
+  
+Type = c('one_to_many','one_to_one','many_to_one','many-to-many'),
+Count = c(
+
+nrow(Filtered_1_to_Many),
+
+nrow(Filtered_1_to_1),
+
+nrow(Filtered_Many_to_1),
+
+nrow(Filtered_many_to_many)
+  
+  )
+
+)
+
+
+return(list(NCBI_Ensembl_Relationship_Gene_Models,NCBI_Ensembl_Stat,Unique_NCBI_Models,Unique_Ensembl_Models))
+
+}
+
+
+```
+
+ 
+```{r}
+
+
+
+#########################################################################################
+
+NCBI_Ensembl_Fjoin_75s_Data <- read.delim('NCBI_Ens_75s_Raw.gff3',sep = '\t',header = FALSE)
+
+NCBI_Ens_75s_ls <- NCBI_Ens_Stats(NCBI_Ensembl_Fjoin_75s_Data,Processed_NCBI_Data,Processed_Ensembl_Data)
+
+NCBI_Ensembl_Stat_Data <- NCBI_Ens_75s_ls[[2]]
+
+NCBI_Ensembl_Relationship_Gene_Models <- NCBI_Ens_75s_ls[[1]]
+
+Unique_NCBI_Models <- NCBI_Ens_75s_ls[[3]]
+
+Unique_Ensembl_Models <- NCBI_Ens_75s_ls[[4]]
+
+write.csv(NCBI_Ensembl_Stat_Data,file = 'NCBI_Ensembl_Model_Stats_75s.csv',row.names = FALSE,quote = FALSE)
+
+#### writing the computed model relationship count to csv #####
+
+write.csv(NCBI_Ensembl_Relationship_Gene_Models,file = 'NCBI_Ensembl_Relationship_Gene_Models_75s.csv',col.names = TRUE,row.names = FALSE,quote = FALSE)
+
+write.table(Unique_NCBI_Models,file = 'Unique_NCBI_Models_75s.gff3',sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+write.table(Unique_Ensembl_Models,file = 'Unique_Ensembl_Models_75s.gff3',sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+
+########################################################################################
+
+
+NCBI_Ensembl_Fjoin_50s_Data <- read.delim('NCBI_Ens_50s_Raw.gff3',sep = '\t',header = FALSE)
+
+NCBI_Ensembl_Stat <- NCBI_Ens_Stats(NCBI_Ensembl_Fjoin_50s_Data,Processed_NCBI_Data,Processed_Ensembl_Data)
+
+NCBI_Ensembl_Relationship_Gene_Models <- NCBI_Ensembl_Stat[[1]]
+
+NCBI_Ensembl_Stat_Data <- NCBI_Ensembl_Stat[[2]]
+
+Unique_NCBI_Models <- NCBI_Ensembl_Stat[[3]]
+
+Unique_Ensembl_Models <- NCBI_Ensembl_Stat[[4]]
+
+write.csv(NCBI_Ensembl_Stat_Data,file = 'NCBI_Ensembl_Model_Stats_50s.csv',row.names = FALSE,quote = FALSE)
+
+#### writing the computed model relationship count to csv #####
+
+write.csv(NCBI_Ensembl_Relationship_Gene_Models,file = 'NCBI_Ensembl_Relationship_Gene_Models_50s.csv',col.names = TRUE,row.names = FALSE,quote = FALSE)
+
+write.table(Unique_NCBI_Models,file = 'Unique_NCBI_Models_50s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+write.table(Unique_Ensembl_Models,file = 'Unique_Ensembl_Models_50s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+
+########################################################################################
+
+NCBI_Ensembl_Fjoin_25s_Data <- read.delim('NCBI_Ens_25s_Raw.gff3',sep = '\t',header = FALSE)
+
+NCBI_Ensembl_25s_ls <- NCBI_Ens_Stats(NCBI_Ensembl_Fjoin_25s_Data,Processed_NCBI_Data,Processed_Ensembl_Data)
+
+NCBI_Ensembl_Stats <- NCBI_Ensembl_25s_ls[[2]] 
+
+NCBI_Ensembl_Relationship_Gene_Models <- NCBI_Ensembl_25s_ls[[1]]
+
+Unique_NCBI_Models <- NCBI_Ensembl_25s_ls[[3]]
+
+Unique_Ensembl_Models <- NCBI_Ensembl_25s_ls[[4]]
+
+write.csv(NCBI_Ensembl_Stats,file = 'NCBI_Ensembl_Model_Stats_25s.csv',row.names = FALSE,quote = FALSE)
+
+#### writing the computed model relationship count to csv #####
+
+write.csv(NCBI_Ensembl_Relationship_Gene_Models,file = 'NCBI_Ensembl_Relationship_Gene_Models_25s.csv',col.names = TRUE,row.names = FALSE,quote = FALSE)
+
+write.table(Unique_NCBI_Models,file = 'Unique_NCBI_Models_25s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+write.table(Unique_Ensembl_Models,file = 'Unique_Ensembl_Models_25s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+########################################################################################
+
+NCBI_Ensembl_Fjoin_10s_Data <- read.delim('NCBI_Ens_10s_Raw.gff3',sep = '\t',header = FALSE)
+
+NCBI_Ensembl_10s_ls <- NCBI_Ens_Stats(NCBI_Ensembl_Fjoin_10s_Data,Processed_NCBI_Data,Processed_Ensembl_Data)
+
+NCBI_Ensembl_Relationship_Gene_Models <- NCBI_Ensembl_10s_ls[[1]]
+
+NCBI_Ensembl_Stats <- NCBI_Ensembl_10s_ls[[2]] 
+
+Unique_NCBI_Models <- NCBI_Ensembl_10s_ls[[3]]
+
+Unique_Ensembl_Models <- NCBI_Ensembl_10s_ls[[4]]
+
+write.csv(NCBI_Ensembl_Stats,file = 'NCBI_Ensembl_Model_Stats_10s.csv',row.names = FALSE,quote = FALSE)
+
+write.table(Unique_NCBI_Models,file = 'Unique_NCBI_Models_10s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+write.table(Unique_Ensembl_Models,file = 'Unique_Ensembl_Models_10s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+#### writing the computed model relationship count to csv #####
+
+write.csv(NCBI_Ensembl_Relationship_Gene_Models,file = 'NCBI_Ensembl_Relationship_Gene_Models_10s.csv',col.names = TRUE,row.names = FALSE,quote = FALSE)
+
+
+########################################################################################
+
+NCBI_Ensembl_Fjoin_90s_Data <- read.delim('NCBI_Ens_90s_Raw.gff3',sep = '\t',header = FALSE)
+
+NCBI_Ensembl_90s_ls <- NCBI_Ens_Stats(NCBI_Ensembl_Fjoin_90s_Data,Processed_NCBI_Data,Processed_Ensembl_Data)
+
+NCBI_Ensembl_Stat_Data <- NCBI_Ensembl_90s_ls[[2]]
+
+NCBI_Ensembl_Relationship_Gene_Models <- NCBI_Ensembl_90s_ls[[1]]
+
+Unique_NCBI_Models <- NCBI_Ensembl_90s_ls[[3]]
+
+Unique_Ensembl_Models <- NCBI_Ensembl_90s_ls[[4]]
+
+write.csv(NCBI_Ensembl_Stat_Data,file = 'NCBI_Ensembl_Model_Stats_90s.csv',row.names = FALSE,quote = FALSE)
+
+#### writing the computed model relationship count to csv #####
+
+write.csv(NCBI_Ensembl_Relationship_Gene_Models,file = 'NCBI_Ensembl_Relationship_Gene_Models_90s.csv',col.names = TRUE,row.names = FALSE,quote = FALSE)
+
+write.table(Unique_NCBI_Models,file = 'Unique_NCBI_Models_90s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+write.table(Unique_Ensembl_Models,file = 'Unique_Ensembl_Models_90s.gff3',col.names = FALSE,row.names = FALSE,sep = "\t",quote = FALSE)
+
+########################################################################################
+
+
+
+```
+
+
+```{r}
+
+########################################################################################
+
+    ### Processing different overlap values of NCBI Ensembl Fjoin Data ######
+    ## Parse_gene_NCBI_Ensembl_Fjoin: function filters 10 gene models from each of the
+    ## processed NCBI Ensembl data based on different overlap values:
+    ## 10%,25%,50%,75%,90% computed based on shorter pair or longer pair.
+  
+#########################################################################################
+
+Parse_gene_NCBI_Ensembl_Fjoin <- function(Process_NCBI_Ensembl_Fjoin_Data){
+  
+names(Process_NCBI_Ensembl_Fjoin_Data) <- c('Overlap_Values','chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes')
+  
+Process_Chr_NCBI_Ens_FJoin <- Process_NCBI_Ensembl_Fjoin_Data %>% filter(chrloc == "Chr1")
+
+Merged_Data <- rbind.data.frame(Process_NCBI_Ensembl_Fjoin_Data[1:1000,],Process_Chr_NCBI_Ens_FJoin[1:500,])
+
+}
+
+########################################################################################
+
+Filtered_NCBI_Ensembl_Fjoin_10_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_10_Raw_Data)
+
+Filtered_NCBI_Ensembl_Fjoin_10s_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_10s_Raw_Data)
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_10_Raw_Data,file = 'Filtered_NCBI_Ens_10_Raw.csv')
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_10s_Raw_Data,file = 'Filtered_NCBI_Ens_10s_Raw.csv')
+
+#########################################################################################
+
+Filtered_NCBI_Ensembl_Fjoin_25_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_25_Raw_Data)
+
+Filtered_NCBI_Ensembl_Fjoin_25s_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(NCBI_Ensembl_Fjoin_25s_Data)
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_25_Raw_Data,file = 'Filtered_NCBI_Ens_25_Raw.csv')
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_25s_Raw_Data,file = 'Filtered_NCBI_Ens_25s_Raw.csv')
+
+########################################################################################
+
+Filtered_NCBI_Ensembl_Fjoin_50_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_50_Raw_Data)
+
+Filtered_NCBI_Ensembl_Fjoin_50s_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(NCBI_Ensembl_Fjoin_50s_Data)
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_50_Raw_Data,file = 'Filtered_NCBI_Ens_50_Raw.csv')
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_50s_Raw_Data,file = 'Filtered_NCBI_Ens_50s_Raw.csv')
+
+#########################################################################################
+
+Filtered_NCBI_Ensembl_Fjoin_75_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_75_Raw_Data)
+
+Filtered_NCBI_Ensembl_Fjoin_75s_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_75s_Raw_Data)
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_75_Raw_Data,file = 'Filtered_NCBI_Ens_75_Raw.csv')
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_75s_Raw_Data,file = 'Filtered_NCBI_Ens_75s_Raw.csv')
+
+
+#########################################################################################
+
+Filtered_NCBI_Ensembl_Fjoin_90_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(Processed_NCBI_Ens_90_Raw_Data)
+
+Filtered_NCBI_Ensembl_Fjoin_90s_Raw_Data <- Parse_gene_NCBI_Ensembl_Fjoin(NCBI_Ensembl_Fjoin_90s_Data)
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_90_Raw_Data,file = 'Filtered_NCBI_Ens_90_Raw.csv')
+
+write.csv(Filtered_NCBI_Ensembl_Fjoin_90s_Raw_Data,file = 'Filtered_NCBI_Ens_90s_Raw.csv')
+
+##########################################################################################
+
+```
+
+```{r}
+
+#####################################################################
+
+#### Processing the final NCBI Ensembl XGC Output of fjoin ########
+
+#####################################################################
+
+NCBI_Ens_XGC_Stats <- function(NCBI_Ensembl_XGC_Fjoin_Data,Processed_NCBI_Data,Processed_Ensembl_Data,Processed_XGC_Data){
+  
+names(NCBI_Ensembl_XGC_Fjoin_Data) <- c('Overlap_Val','chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes')
+
+Processed_NCBI_Ensembl_XGC_Fjoin_Data <- NCBI_Ensembl_XGC_Fjoin_Data[,c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes')]    
+
+Processed_NCBI_Fjoin_df <- Processed_NCBI_Ensembl_XGC_Fjoin_Data %>% filter(source == 'NCBI') %>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes)%>% distinct(.keep_all = TRUE)
+
+Processed_Ensembl_Fjoin_df <- Processed_NCBI_Ensembl_XGC_Fjoin_Data %>% filter(source == 'ensembl') %>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes)%>% distinct(.keep_all = TRUE)
+
+Processed_XGC_Fjoin_df <- Processed_NCBI_Ensembl_XGC_Fjoin_Data %>% filter(source == 'Genbank') %>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes)%>% distinct(.keep_all = TRUE)
+
+#Processed_NCBI_gene_Fjoin_df <- Processed_NCBI_Fjoin_df %>% filter(type == 'gene' | type == "pseudogene") %>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes,Overlap_Val)%>% distinct(.keep_all = TRUE)
+
+#Processed_Ensembl_gene_Fjoin_df <- Processed_Ensembl_Fjoin_df %>% filter(type == 'gene' | type == "pseudogene") %>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes,Overlap_Val)%>% distinct(.keep_all = TRUE)
+
+#Processed_XGC_gene_Fjoin_df <- Processed_XGC_Fjoin_df %>% filter(type == 'gene' | type == "pseudogene")%>% select(chrloc,source,type,start,end,strand,modified_attributes,attributes,Overlap_Val)%>% distinct(.keep_all = TRUE)
+
+
+#Mod_Processed_NCBI_Ensembl_XGC_Fjoin_Data <- cbind.data.frame(Processed_NCBI_Fjoin_df,Processed_Ensembl_Fjoin_df,Processed_XGC_Fjoin_df)
+
+#names(Mod_Processed_NCBI_Ensembl_XGC_Fjoin_Data) <- c('chrloc_1','source_1','type_1','start_1','end_1','strand_1','modified_attributes_1','attributes_1','chrloc_2','source_2','type_2','start_2','end_2','strand_2','modified_attributes_2','attributes_2','chrloc_3','source_3','type_3','start_3','end_3','strand_3','modified_attributes_3','attributes_3')
+
+#Mod_Data <- Mod_Processed_NCBI_Ensembl_XGC_Fjoin_Data %>% distinct(.keep_all = TRUE)
+
+####### Extracting gene models of the modified NCBI Ensembl fjoin dataset ##########
+
+#Filtered_NCBI_Ens_XGC_Gene_Models <- Mod_Data %>% filter((type_1 == 'gene' | type_1 == 'pseudogene') & (type_2 == 'gene' | type_2 == 'pseudogene') & (type_3 == 'gene' | type_3 == 'pseudogene')) %>% select('chrloc_1','start_1','end_1','strand_1','type_1','modified_attributes_1','chrloc_2','type_2','start_2','end_2','strand_2','modified_attributes_2','chrloc_3','type_3','start_3','end_3','strand_3','modified_attributes_3')
+
+#Filtered_NCBI_Ens_Gene_Models <- cbind_total_data %>% filter((type1 == 'gene' | type1 == 'pseudogene') & (type2 == 'gene' | type2 == 'pseudogene')) %>% select('chrloc_1','type1','start1','end1','strand1','modattr1','chrloc_2','type2','start2','end2','strand2','modattr2') %>% distinct(.keep_all = TRUE)
+
+#Processed_NCBI_Gene_Models <- Processed_NCBI_Data %>% filter(type == 'gene' | type == "pseudogene")
+
+#Processed_Ensembl_Gene_Models <- Processed_Ensembl_Data %>% filter(type == 'gene' | type == "pseudogene")
+
+#Processed_XGC_Gene_Models <- Processed_XGC_Data %>% filter(type == 'gene' | type == "pseudogene")
+
+        ######### Determinng Unique NCBI and Ensembl Models #############
+
+Unique_NCBI_Models <- Processed_NCBI_Data %>% filter(!(chrloc %in% Processed_NCBI_Fjoin_df$chrloc & start %in% Processed_NCBI_Fjoin_df$start & end %in% Processed_NCBI_Fjoin_df$end & strand %in% Processed_NCBI_Fjoin_df$strand & attributes %in% Processed_NCBI_Fjoin_df$attributes)) %>% select(chrloc,source,type,start,end,score,strand,phase,modified_attributes,attributes) %>% distinct(.keep_all = TRUE) 
+
+#Unique_NCBI_Gene_Models <- Processed_NCBI_Gene_Models %>% filter(!(chrloc %in% Processed_NCBI_gene_Fjoin_df$chrloc & start %in% Processed_NCBI_gene_Fjoin_df$start & end %in% Processed_NCBI_gene_Fjoin_df$end & strand %in% Processed_NCBI_gene_Fjoin_df$strand & attributes %in% Processed_NCBI_gene_Fjoin_df$attributes)) %>% distinct(.keep_all = TRUE) 
+
+Unique_Ensembl_Models <- Processed_Ensembl_Data %>% filter(!(chrloc %in% Processed_Ensembl_Fjoin_df$chrloc & start %in% Processed_Ensembl_Fjoin_df$start & end %in% Processed_Ensembl_Fjoin_df$end & strand %in% Processed_Ensembl_Fjoin_df$strand & attributes %in% Processed_Ensembl_Fjoin_df$attributes)) %>% select(chrloc,source,type,start,end,score,strand,phase,modified_attributes,attributes) %>% distinct(.keep_all = TRUE) #55492 models are unique and not present in the Ensembl Data #115433 unique models longer pairs
+
+#Unique_Ensembl_Gene_Models <- Processed_Ensembl_Gene_Models %>% filter(!(chrloc %in% Processed_Ensembl_gene_Fjoin_df$chrloc & start %in% Processed_Ensembl_gene_Fjoin_df$start & end %in% Processed_Ensembl_gene_Fjoin_df$end & strand %in% Processed_Ensembl_gene_Fjoin_df$strand & attributes %in% Processed_Ensembl_gene_Fjoin_df$attributes)) %>% distinct(.keep_all = TRUE) #3750 gene models are present that are unique among the gene models in the merged #9638 models
+
+
+Unique_XGC_Models <- Processed_XGC_Data %>% filter(!(chrloc %in% Processed_XGC_Fjoin_df$chrloc & start %in% Processed_XGC_Fjoin_df$start & end %in% Processed_XGC_Fjoin_df$end & strand %in% Processed_XGC_Fjoin_df$strand & attributes %in% Processed_XGC_Fjoin_df$attributes)) %>% select(chrloc,source,type,start,end,score,strand,phase,modified_attributes,attributes) %>% distinct(.keep_all = TRUE) #55492 models are unique and not present in the Ensembl Data #115433 unique models longer pairs
+
+
+Complete_NCBI_Ens_XGC_D <- rbind.data.frame(Processed_NCBI_Ensembl_XGC_Fjoin_Data,Unique_NCBI_Models,Unique_Ensembl_Models,Unique_XGC_Models)
+
+#Unique_XGC_gene_Models <- Processed_XGC_Gene_Models %>% filter(!(chrloc %in% Processed_XGC_gene_Fjoin_df$chrloc & start %in% Processed_XGC_gene_Fjoin_df$start & end %in% Processed_XGC_gene_Fjoin_df$end & strand %in% Processed_XGC_gene_Fjoin_df$strand & attributes %in% Processed_XGC_gene_Fjoin_df$attributes)) %>% select(chrloc,source,type,start,end,score,strand,phase,modified_attributes,attributes) %>% distinct(.keep_all = TRUE) #55492 models are unique and not present in the Ensembl Data #115433 unique models longer pairs
+
+
+   ######## grouping the models to prepare data to determine the count ###########
+
+#cbind_filtered_NE_ls <- list()
+ # cbind_filtered_XGC_ls <- list()
+  
+  # for (i in 1 : nrow(Processed_NCBI_Ensembl_XGC_Fjoin_Data)) {
+     
+   #  if(i %% 2 != 0){
+       
+    #   cbind_filtered_NE_ls[[length(cbind_filtered_NE_ls)+1]] <- Processed_NCBI_Ensembl_XGC_Fjoin_Data[i,]
+       
+       
+     #}
+     
+     #else if(i %% 2 == 0){
+       
+       
+      # cbind_filtered_XGC_ls[[length(cbind_filtered_XGC_ls)+1]] <- Processed_NCBI_Ensembl_XGC_Fjoin_Data[i,]
+       
+       
+     #}
+     
+   #}
+  
+  #cbind_filtered_NE_df <- do.call("rbind.data.frame",cbind_filtered_NE_ls)
+    
+  #cbind_filtered_XGC_df <- do.call("rbind.data.frame",cbind_filtered_XGC_ls)
+  
+  #cbind_total_data <- cbind.data.frame(cbind_filtered_NE_df,cbind_filtered_XGC_df)
+  
+#names(cbind_total_data) <- c('chrloc_1','source_1','type_1','start_1','end_1','strand_1','modified_attributes_1','attributes_1','Overlap_Val_1','chrloc_2','source_2','type_2','start_2','end_2','strand_2','modified_attributes_2','attributes_2','Overlap_Val_2')
+
+#cbind_NCBI_XGC_gene_df <- cbind_total_data %>% filter(source_1 == 'NCBI' & source_2 == "Genbank") %>% distinct(.keep_all = TRUE)
+
+#cbind_Ens_XGC_gene_df <- cbind_total_data %>% filter(source_1 == 'ensembl' & source_2 == "Genbank") %>% distinct(.keep_all = TRUE)
+
+
+########################################################################################  
+  
+#Filtered_1_to_Many_NE_Relationship_Gene_Models <- Filtered_NCBI_Ens_XGC_Gene_Models %>% mutate(
+  
+  #Combined_attr_2 = paste0(start_2,"_",end_2)
+  #One_to_Many_Relationship_Count = length(unique(One_to_Many_Relationship))
+  
+  
+  #) 
+
+#Filtered_1_to_Many_NE_Relationship_Gene_Model <- Filtered_1_to_Many_NE_Relationship_Gene_Models %>% group_by(chrloc_1,start_1,end_1,strand_1) %>% mutate(
+  
+ # One_to_Many_Relationship = paste0(unique(Combined_attr_2),collapse = ";"),
+  #One_to_Many_Relationship_Count = length(unique(Combined_attr_2))
+  
+  
+  #) %>% select(chrloc_1,start_1,end_1,strand_1,chrloc_2,start_2,end_2,strand_2,Combined_attr_2,One_to_Many_Relationship,One_to_Many_Relationship_Count,chrloc_3,start_3,end_3,strand_3) %>% distinct(.keep_all = TRUE)
+
+#Filtered_Many_To_1_Relationship_NE_Gene_Models <- Filtered_1_to_Many_NE_Relationship_Gene_Model %>% mutate(
+  
+  
+ # Combined_Attr_1 = paste0(start_1,"_",end_1)
+  
+#)
+
+#Filtered_Many_To_1_NE_Relationship_Gene_Model <- Filtered_Many_To_1_Relationship_NE_Gene_Models %>% group_by(chrloc_2,start_2,end_2,strand_2) %>% mutate(
+  
+ # Many_to_One_Relationship = paste0(unique(Combined_Attr_1),collapse = ";"),
+  #Many_to_One_Relationship_Count = length(unique(Combined_Attr_1))
+  
+  
+  #) %>% select(chrloc_1,start_1,end_1,strand_1,chrloc_2,start_2,end_2,strand_2,Combined_attr_2,One_to_Many_Relationship,One_to_Many_Relationship_Count,Combined_Attr_1,Many_to_One_Relationship,Many_to_One_Relationship_Count,chrloc_3,start_3,end_3,strand_3) %>% distinct(.keep_all = TRUE)
+
+
+#Filtered_NX_1_to_M_complicated_models <- Filtered_Many_To_1_NE_Relationship_Gene_Model %>% 
+
+#mutate(
+  
+  
+ # Combined_attr_3 = paste0(start_3,"_",end_3)
+  
+#)
+  
+#Filtered_NX_1_to_M_complicated_models <- Filtered_NX_1_to_M_complicated_models %>% group_by(chrloc_1,start_1,end_1,strand_1) %>% mutate(
+  
+  
+  
+ # Complicated_NCBI_XGC_1_to_Many_Models = paste(unique(Combined_attr_3),collapse = ";"),
+  #Complicated_NCBI_XGC_1_to_Many_Model_Count = length(unique(Combined_attr_3))
+  
+  
+#)
+
+#Filtered_NX_M_to_1_complicated_models <- Filtered_NX_1_to_M_complicated_models %>% ungroup() %>% group_by(chrloc_3,start_3,end_3,strand_3) %>% mutate(
+  
+  
+ # Complicated_NCBI_XGC_Many_to_1_Models = paste(unique(Combined_attr_1),collapse = ";"),
+  #Complicated_NCBI_XGC_Many_to_1_Model_Count = length(unique(Combined_attr_1))
+  
+#)
+
+#Filtered_EX_1_to_M_complicated_models <- Filtered_NEX_M_to_1_complicated_models %>% ungroup() %>% group_by(chrloc_2,start_2,end_2,strand_2) %>% mutate(
+  
+  
+  
+ # Complicated_Ens_XGC_1_to_M_Models = paste(unique(Combined_attr_3),collapse = ";"),
+  #Complicated_Ens_XGC_1_to_M_Model_Count = length(unique(Combined_attr_3))
+  
+  
+#) %>% select(chrloc_1,start_1,end_1,strand_1,chrloc_2,start_2,end_2,strand_2,Combined_attr_1,One_to_Many_Relationship,One_to_Many_Relationship_Count,Combined_attr_2,Many_to_One_Relationship,Many_to_One_Relationship_Count,chrloc_3,start_3,end_3,strand_3,Combined_attr_3,Complicated_NCBI_XGC_1_to_Many_Models,Complicated_NCBI_XGC_1_to_Many_Model_Count,Complicated_NCBI_XGC_Many_to_1_Models,Complicated_NCBI_XGC_Many_to_1_Model_Count,Complicated_Ens_XGC_1_to_M_Models,Complicated_Ens_XGC_1_to_M_Model_Count) %>% distinct(.keep_all = TRUE) 
+
+
+#Filtered_complicated_models <- Filtered_EX_1_to_M_complicated_models %>% ungroup() %>% group_by(chrloc_3,start_3,end_3,strand_3) %>% mutate(
+  
+  
+ # Complicated_Ens_XGC_M_to_1_Models = paste(unique(Combined_attr_2),collapse = ";"),
+  #Complicated_Ens_XGC_M_to_1_Model_Count = length(unique(Combined_attr_2))
+  
+  
+#) %>% ungroup() %>% select(One_to_Many_Relationship_Count,One_to_Many_Relationship_Count,Many_to_One_Relationship,Many_to_One_Relationship_Count,Complicated_NCBI_XGC_1_to_Many_Models,Complicated_NCBI_XGC_1_to_Many_Model_Count,Complicated_NCBI_XGC_Many_to_1_Models,Complicated_NCBI_XGC_Many_to_1_Model_Count,Complicated_Ens_XGC_1_to_M_Models,Complicated_Ens_XGC_1_to_M_Model_Count,Complicated_Ens_XGC_M_to_1_Models,Complicated_Ens_XGC_M_to_1_Model_Count) %>% distinct(.keep_all = TRUE) 
+
+
+#Filtered_1_to_1  <- unique(Filtered_complicated_models[Filtered_complicated_models$One_to_Many_Relationship_Count == 1 & Filtered_complicated_models$Many_to_One_Relationship_Count == 1 & Filtered_complicated_models$Complicated_NCBI_XGC_1_to_Many_Model_Count == 1 & Filtered_complicated_models$Complicated_NCBI_XGC_Many_to_1_Model_Count == 1 & Filtered_complicated_models$Complicated_Ens_XGC_1_to_M_Model_Count == 1 &  Filtered_complicated_models$Complicated_Ens_XGC_M_to_1_Model_Count,])
+
+#Filtered_Complicated <- unique(Filtered_complicated_models[!(Filtered_complicated_models$One_to_Many_Relationship_Count == 1 & Filtered_complicated_models$Many_to_One_Relationship_Count == 1 & Filtered_complicated_models$Complicated_NCBI_XGC_1_to_Many_Model_Count == 1 & Filtered_complicated_models$Complicated_NCBI_XGC_Many_to_1_Model_Count == 1 & Filtered_complicated_models$Complicated_Ens_XGC_1_to_M_Model_Count == 1 &  Filtered_complicated_models$Complicated_Ens_XGC_M_to_1_Model_Count),])
+
+######################################################################################
+
+             #computing the count of models of NCBI
+             #computing the count of models of Ensembl
+             #computing the count of models of NCBI and Ensembl
+
+######################################################################################
+
+#NCBI_Ensembl_XGC_Stat <- data.frame(Type = c('Total_NCBI_Gene_Models','Total_Ensembl_Gene_Models','Total_XGC_Gene_Models','Overlapped_NCBI_Ensembl_XGC_Gene_Models','Unique_NCBI_Gene_Models','Unique_Ensembl_Gene_Models','Unique_XGC_Gene_Models','Overlapped_NCBI_XGC_Gene_Models','Overlapped_Ens_XGC_Gene_Models'),
+#Count = c(nrow(Processed_NCBI_Gene_Models),nrow(Processed_Ensembl_Gene_Models),nrow(Processed_XGC_Gene_Models),nrow(Processed_Ensembl_gene_Fjoin_df)+nrow(Processed_NCBI_gene_Fjoin_df)+nrow(Processed_NCBI_gene_Fjoin_df),nrow(Unique_NCBI_Gene_Models),nrow(Unique_Ensembl_Gene_Models),nrow(Unique_XGC_gene_Models),nrow(Processed_NCBI_gene_Fjoin_df),nrow(cbind_NCBI_XGC_gene_df),nrow(cbind_Ens_XGC_gene_df)))
+
+#########################################################################################
+
+#########################################################################################
+
+######################################################################################
+
+###### Computing different relationships among NCBI Ensembl XGC Gene Models #########
+                  ## One-to-One
+                  ## Complicated
+
+#######################################################################################
+
+###### computing relationship count and storing data in df #######
+
+#NCBI_Ensembl_XGC_Relationship_Gene_Models <- data.frame(
+  
+#Type = c('one_to_one','Complicated'),
+#Count = c(
+
+#nrow(Filtered_1_to_1),
+
+#nrow(Filtered_Complicated)
+
+ # )
+
+#)
+
+
+return(list(Complete_NCBI_Ens_XGC_D,Unique_NCBI_Models,Unique_Ensembl_Models,Unique_XGC_Models))
+
+}
+
+```
+
+
+```{r}
+
+#####################################################################
+
+#### Processing the final NCBI ENsembl XGC Output of fjoin ########
+
+#####################################################################
+
+NCBI_Ens_75s_XGC_50_Fjoin_Data <- read.delim('NCBI_Ens_75s_XGC_50.gff3',sep = '\t',header = FALSE)
+
+NCBI_Ens_XGC_ls <- NCBI_Ens_XGC_Stats(NCBI_Ens_75s_XGC_50_Fjoin_Data,Processed_NCBI_Data,Processed_Ensembl_Data,Processed_XGC_Data)
+
+#NCBI_Ensembl_XGC_Relationship_Gene_Models <- NCBI_Ens_XGC_ls[[1]]
+
+#NCBI_Ensembl_XGC_Stat <- NCBI_Ens_XGC_ls[[1]]
+
+Complete_NCBI_Ens_XGC_df <- NCBI_Ens_XGC_ls[[1]]
+
+Unique_NCBI_Models  <- NCBI_Ens_XGC_ls[[2]] 
+
+Unique_Ens_Models <- NCBI_Ens_XGC_ls[[3]]
+
+Unique_XGC_Models <- NCBI_Ens_XGC_ls[[4]]
+
+#write.csv(NCBI_Ensembl_XGC_Relationship_Gene_Models,file = 'NCBI_Ensembl_XGC_Relationship_Gene_Models.csv',row.names = FALSE,quote = FALSE)
+
+#write.csv(NCBI_Ensembl_XGC_Stat,file = 'NCBI_Ensembl_XGC_Stat.csv',row.names = FALSE,quote = FALSE)
+
+
+write.table(Complete_NCBI_Ens_XGC_df,file = "Complete_NCBI_Ens_XGC_75s_50.gff3",sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE) #writing complete Data into gff file
+
+write.table(Unique_NCBI_Models,file = 'Unique_NCBI_Models_75s_50.gff3',row.names = FALSE,quote = FALSE,col.names = FALSE,sep = "\t")
+
+write.table(Unique_Ensembl_Models,file = 'Unique_Ensembl_Models_75s_50.gff3',row.names = FALSE,quote = FALSE,col.names = FALSE)
+
+write.table(Unique_XGC_Models,file = 'Unique_XGC_Models_75s_50.gff3',row.names = FALSE,quote = FALSE,col.names = FALSE)
+
+
+```
+
+```{r}
+
+#### identify the unique models among shorter pairs ####
+
+
+Processed_NCBI_Ensembl_10_Raw_Data <- read.delim('Processed_NCBI_Ens_Fjoin_10_Raw.gff3',sep = '\t',header = FALSE)
+
+names(Processed_NCBI_Ensembl_10_Raw_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes','Overlap_Values')
+
+Processed_NCBI_Ensembl_25_Raw_Data <- read.delim('Processed_NCBI_Ens_Fjoin_25_Raw.gff3',sep = '\t',header = FALSE)
+
+names(Processed_NCBI_Ensembl_25_Raw_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes','Overlap_Values')
+
+
+Processed_NCBI_Ensembl_50_Raw_Data <- read.delim('Processed_NCBI_Ens_Fjoin_50_Raw.gff3',sep = '\t',header = FALSE)
+
+names(Processed_NCBI_Ensembl_50_Raw_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes','Overlap_Values')
+
+Processed_NCBI_Ensembl_75_Raw_Data <- read.delim('Processed_NCBI_Ens_Fjoin_75_Raw.gff3',sep = '\t',header = FALSE)
+
+names(Processed_NCBI_Ensembl_75_Raw_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes','Overlap_Values')
+
+Processed_NCBI_Ensembl_90_Raw_Data <- read.delim('Processed_NCBI_Ens_Fjoin_90_Raw.gff3',sep = '\t',header = FALSE)
+
+names(Processed_NCBI_Ensembl_90_Raw_Data) <- c('chrloc','source','type','start','end','score','strand','phase','modified_attributes','attributes','Overlap_Values')
+
+
+Identify_Unique_Models <- function(Processed_NCBI_Ens_Raw_Data){
+
+Processed_NCBI_Fjoin_df <- Processed_NCBI_Ens_Raw_Data %>% filter(source == 'NCBI') %>% select(chrloc,source,type,start,end,strand,modified_attributes,Overlap_Val)
+
+Processed_Ensembl_Fjoin_df <- Processed_NCBI_Ens_Raw_Data %>% filter(source == 'ensembl')%>% select(chrloc,source,type,start,end,strand,modified_attributes,Overlap_Val)
+
+Mod_Processed_NCBI_Ensembl_Fjoin_Data <- cbind.data.frame(Processed_NCBI_Fjoin_df,Processed_Ensembl_Fjoin_df)
+
+names(Mod_Processed_NCBI_Ensembl_Fjoin_Data) <- c('chrloc_1','source_1','type_1','start_1','end_1','strand_1','modified_attributes_1','overlap_val_1','chrloc_2','source_2','type_2','start_2','end_2','strand_2','modified_attributes_2','overlap_val_2')
+
+Mod_D <- Mod_Processed_NCBI_Ensembl_Fjoin_Data[,c("chrloc_1","source_1","type_1","start_1","end_1","strand_1","modified_attributes_1","overlap_val_1","chrloc_2","source_2","type_2","start_2","end_2","strand_2","modified_attributes_2","overlap_val_2")]
+
+}
+
+############### passing in longer pair merged data into identify models function 
+
+
+Mod_NCBI_Ens_10 <- Identify_Unique_Models(Processed_NCBI_Ens_10_Raw_Data)
+
+Mod_NCBI_Ens_25 <- Identify_Unique_Models(Processed_NCBI_Ens_25_Raw_Data)
+
+Mod_NCBI_Ens_50 <- Identify_Unique_Models(Processed_NCBI_Ens_50_Raw_Data)
+
+Mod_NCBI_Ens_75 <- Identify_Unique_Models(Processed_NCBI_Ens_75_Raw_Data)
+
+Mod_NCBI_Ens_90 <- Identify_Unique_Models(Processed_NCBI_Ens_90_Raw_Data)
+
+
+############### passing in shorter pair merged data into identify models function 
+
+Mod_NCBI_Ens_10s <- Identify_Unique_Models(Processed_NCBI_Ens_10s_Raw_Data)
+
+Mod_NCBI_Ens_25s <- Identify_Unique_Models(Processed_NCBI_Ens_25s_Raw_Data)
+
+Mod_NCBI_Ens_50s <- Identify_Unique_Models(Processed_NCBI_Ens_50s_Raw_Data)
+
+Mod_NCBI_Ens_75s <- Identify_Unique_Models(Processed_NCBI_Ens_75s_Raw_Data)
+
+Mod_NCBI_Ens_90s <- Identify_Unique_Models(Processed_NCBI_Ens_90s_Raw_Data)
+
+#write.csv(Mod_NCBI_Ens_90s,file = "Mod_NCBI_Ens_90s.csv")
+
+compare_raw_data <- function(x,y){
+  
+Unique_NCBI_Ens_Data <-  x %>% filter(!(chrloc_1 %in% y$chrloc_1 & type_1 %in% y$type_1 & start_1 %in% y$start_1 & end_1 %in% y$end_1 & strand_1 %in% y$strand_1 & modified_attributes_1 %in% y$modified_attributes_1 & chrloc_2 %in% y$chrloc_2 & type_2 %in% y$type_2 & start_2 %in% y$start_2 & end_2 %in% y$end_2 & strand_2 %in% y$strand_2 & modified_attributes_2 %in% y$modified_attributes_2))
+  
+}
+
+###### Passing in modified longer pair data to identify unique models and comparison
+
+Unique_NCBI_Ens_10_25 <- compare_raw_data(Mod_NCBI_Ens_10,Mod_NCBI_Ens_25)
+
+Unique_NCBI_Ens_25_50 <- compare_raw_data(Mod_NCBI_Ens_25,Mod_NCBI_Ens_50)
+
+Unique_NCBI_Ens_50_75 <- compare_raw_data(Mod_NCBI_Ens_50,Mod_NCBI_Ens_75)
+
+Unique_NCBI_Ens_75_90 <- compare_raw_data(Mod_NCBI_Ens_75,Mod_NCBI_Ens_90)
+
+ ############################################################
+
+Unique_NCBI_Ens_75_50 <- compare_raw_data(Mod_NCBI_Ens_75,Mod_NCBI_Ens_50)
+
+Unique_NCBI_Ens_50_25 <- compare_raw_data(Mod_NCBI_Ens_50,Mod_NCBI_Ens_25)
+
+Unique_NCBI_Ens_50_90 <- compare_raw_data(Mod_NCBI_Ens_50,Mod_NCBI_Ens_90)
+
+
+write.csv(Unique_NCBI_Ens_10_25,file = 'Unique_NCBI_Ens_10_25.csv')
+
+write.csv(Unique_NCBI_Ens_25_50,file = 'Unique_NCBI_Ens_25_50.csv')
+
+write.csv(Unique_NCBI_Ens_50_75,file = 'Unique_NCBI_Ens_50_75.csv')
+
+write.csv(Unique_NCBI_Ens_75_90,file = 'Unique_NCBI_Ens_75_90.csv')
+
+write.csv(Unique_NCBI_Ens_75_50,file = 'Unique_NCBI_Ens_75_50.csv')
+
+write.csv(Unique_NCBI_Ens_50_25,file = 'Unique_NCBI_Ens_50_25.csv')
+
+write.csv(Unique_NCBI_Ens_50_90,file = 'Unique_NCBI_Ens_50_90.csv')
+
+
+
+###### Passing in modified shorter pair data to identify unique models and comparison
+
+Unique_NCBI_Ens_10s_25s <- compare_raw_data(Mod_NCBI_Ens_10s,Mod_NCBI_Ens_25s)
+
+Unique_NCBI_Ens_25s_50s <- compare_raw_data(Mod_NCBI_Ens_25s,Mod_NCBI_Ens_50s)
+
+Unique_NCBI_Ens_50s_75s <- compare_raw_data(Mod_NCBI_Ens_50s,Mod_NCBI_Ens_75s)
+
+Unique_NCBI_Ens_75s_90s <- compare_raw_data(Mod_NCBI_Ens_75s,Mod_NCBI_Ens_90s)
+
+Unique_NCBI_Ens_90s_50s <- compare_raw_data(Mod_NCBI_Ens_90s,Mod_NCBI_Ens_50s)
+
+Unique_NCBI_Ens_25s_90s <- compare_raw_data(Mod_NCBI_Ens_25s,Mod_NCBI_Ens_90s)
+
+Unique_NCBI_Ens_25s_75s <- compare_raw_data(Mod_NCBI_Ens_25s,Mod_NCBI_Ens_75s)
+
+Unique_NCBI_Ens_50s_90s <- compare_raw_data(Mod_NCBI_Ens_50s,Mod_NCBI_Ens_90s)
+
+
+write.csv(Unique_NCBI_Ens_10s_25s,file = 'Unique_NCBI_Ens_10s_25s.csv')
+
+write.csv(Unique_NCBI_Ens_25s_50s,file = 'Unique_NCBI_Ens_25s_50s.csv')
+
+write.csv(Unique_NCBI_Ens_50s_75s,file = 'Unique_NCBI_Ens_50s_75s.csv')
+
+write.csv(Unique_NCBI_Ens_75s_90s,file = 'Unique_NCBI_Ens_75s_90s.csv')
+
+write.csv(Unique_NCBI_Ens_25s_90s,file = 'Unique_NCBI_Ens_25s_90s.csv')
+
+write.csv(Unique_NCBI_Ens_25s_75s,file = 'Unique_NCBI_Ens_25s_75s.csv')
+
+write.csv(Unique_NCBI_Ens_50s_90s,file = 'Unique_NCBI_Ens_50s_90s.csv')
+
+write.csv(Unique_NCBI_Ens_90s_75s,file = 'Unique_NCBI_Ens_90s_75s.csv')
+
+##### removing the overlap values '0' from the choosen 90% overlap data, 90% overlap on the merged fjoin data covers 90% of the overlap values from the shorter pair meaning even when a 3 utr or 5 utr fragment is matched,it goes and covers most of the sequences. 
+
+```
+
+```{r}
+
+```
+
